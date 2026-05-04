@@ -1,38 +1,46 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>ChatApp Pro</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureChat Cloud</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 </head>
 <body>
 
 <div id="auth-screen">
     <div class="auth-box">
-        <h2 id="auth-title">Login</h2>
-        <input type="text" id="auth-user" placeholder="Username" />
+        <h2 id="auth-title">Welcome</h2>
+        <input type="text" id="auth-user" placeholder="Username" autocomplete="off" />
         <input type="password" id="auth-pass" placeholder="Password" />
         <button onclick="handleAuth()" id="auth-btn">Login</button>
-        <p onclick="toggleAuth()" id="toggle-text">Don't have an account? Register</p>
+        <p onclick="toggleAuth()" id="toggle-text">New here? Create Account</p>
     </div>
 </div>
 
-<div id="record-status" style="display:none; color: #ff4b4b; font-size: 12px; margin-right: 10px;">
-    <span class="pulse-red">●</span> Recording...
+<div class="main-container">
+    <div class="sidebar">
+        <h3>Online Users</h3>
+        <ul id="users"></ul>
+    </div>
+    
+    <div class="chat-area">
+        <ul id="messages"></ul>
+        
+        <form id="form">
+            <div id="record-status"><span class="pulse">●</span> Recording...</div>
+            
+            <label for="file-input" class="icon-btn">📎</label>
+            <input type="file" id="file-input" style="display:none" />
+            
+            <input id="input" placeholder="Type a message..." autocomplete="off" />
+            
+            <button type="button" id="mic-btn" class="icon-btn">🎤</button>
+            <button type="submit" id="send-btn">➤</button>
+        </form>
+    </div>
 </div>
-
-<ul id="users"></ul>
-<ul id="messages"></ul>
-
-<form id="form">
-  <label for="file-input" class="btn">📎</label>
-  <input type="file" id="file-input" style="display:none" />
-  
-  <input id="input" placeholder="Message..." />
-  
-  <button type="button" id="mic-btn" class="btn">🎤</button>
-  <button type="submit">Send</button>
-</form>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="script.js"></script>

@@ -7,9 +7,12 @@ const multer = require("multer");
 const path = require("path");
 const bcrypt = require("bcryptjs");
 
-// Online-la MongoDB Atlas URL use pannanum (Later step), ippo local-ahve vekkalam
+// Online-la environment variable edukkum, illana local-ah connect pannum
 const mongoURI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/chatapp";
-mongoose.connect(mongoURI);
+
+mongoose.connect(mongoURI)
+  .then(() => console.log("MongoDB Connected Successfully! ✅"))
+  .catch(err => console.error("MongoDB Connection Error: ❌", err));
 
 const User = mongoose.model("User", new mongoose.Schema({
   username: { type: String, unique: true },
@@ -17,12 +20,13 @@ const User = mongoose.model("User", new mongoose.Schema({
 }));
 
 const Message = mongoose.model("Message", new mongoose.Schema({
-  from: String, to: String, message: String, time: String, senderId: String, type: String, group: String
+  from: String, to: String, message: String, time: String, senderId: String, type: String
 }));
 
 app.use(express.static("public"));
 app.use(express.json());
 
+// File Upload Logic
 const storage = multer.diskStorage({
   destination: "./public/uploads/",
   filename: (req, file, cb) => { cb(null, Date.now() + path.extname(file.originalname)); }
@@ -31,56 +35,39 @@ const upload = multer({ storage: storage });
 
 app.post("/register", async (req, res) => {
     try {
-        const hashedPassword = await bcrypt.hash(req.body.password, 10);
-        await User.create({ username: req.body.username, password: hashedPassword });
+        const { username, password } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await User.create({ username, password: hashedPassword });
         res.json({ success: true });
     } catch (e) { res.status(400).json({ error: "User already exists" }); }
 });
 
 app.post("/login", async (req, res) => {
-    const user = await User.findOne({ username: req.body.username });
-    if (user && await bcrypt.compare(req.body.password, user.password)) {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (user && await bcrypt.compare(password, user.password)) {
         res.json({ success: true, user });
-    } else { res.status(400).json({ error: "Invalid login!" }); }
+    } else { res.status(400).json({ error: "Invalid Credentials" }); }
 });
 
 app.post("/upload", upload.single("file"), (req, res) => {
-    res.json({ url: `/uploads/${req.file.filename}` });
+    if (req.file) res.json({ url: `/uploads/${req.file.filename}` });
 });
 
+// Socket.io Real-time Logic
 let users = {};
-let groups = [];
-
 io.on("connection", (socket) => {
     socket.on("join", async (userData) => {
         users[socket.id] = { ...userData, status: "Online" };
         io.emit("user list", users);
-        io.emit("group list", groups);
-        const history = await Message.find({ to: null }).sort({_id: -1}).limit(50);
+        const history = await Message.find().sort({_id: -1}).limit(50);
         socket.emit("chat history", history.reverse());
-    });
-
-    // Group Creation Logic
-    socket.on("create-group", (groupName) => {
-        if(!groups.includes(groupName)) {
-            groups.push(groupName);
-            io.emit("group list", groups);
-        }
-    });
-
-    socket.on("join-group", (groupName) => {
-        socket.join(groupName);
     });
 
     socket.on("chat message", async (data) => {
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const saved = await Message.create({ ...data, time, senderId: socket.id });
-        
-        if(data.toGroup) {
-            io.to(data.toGroup).emit("chat message", { ...data, _id: saved._id, time, senderId: socket.id });
-        } else {
-            io.emit("chat message", { ...data, _id: saved._id, time, senderId: socket.id });
-        }
+        const savedMsg = await Message.create({ ...data, time, senderId: socket.id });
+        io.emit("chat message", { ...data, _id: savedMsg._id, time, senderId: socket.id });
     });
 
     socket.on("message-seen", (d) => io.to(d.senderId).emit("update-tick-blue", d.msgId));
@@ -91,6 +78,6 @@ io.on("connection", (socket) => {
     });
 });
 
-// IMPORTANT FOR DEPLOYMENT: process.env.PORT use pannanum
+// Port setting for Render
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
