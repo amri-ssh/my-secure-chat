@@ -7,116 +7,95 @@ const multer = require("multer");
 const path = require("path");
 const bcrypt = require("bcryptjs");
 
-// Render-la irukura MONGODB_URI-ah edukkum, illana local-ah connect pannum
 const mongoURI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/chatapp";
 
-// Database Connection with Timeout handling
-mongoose.connect(mongoURI, {
-    serverSelectionTimeoutMS: 5000 // 5 seconds-kulla connect aagala-na error kaattum
-})
-.then(() => console.log("MongoDB Connected Successfully! ✅"))
-.catch(err => {
-    console.error("DB Connection Error: ❌", err.message);
-    // Server-ah thirumba restart panna try pannum
-});
+mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 5000 })
+  .then(() => console.log("MongoDB Connected Successfully! ✅"))
+  .catch(err => console.error("DB Connection Error: ❌", err.message));
 
-// Database Schemas
+// Updated Schemas
 const User = mongoose.model("User", new mongoose.Schema({
     username: { type: String, unique: true, required: true },
-    password: { type: String, required: true }
+    password: { type: String, required: true },
+    profilePic: { type: String, default: "https://cdn-icons-png.flaticon.com/512/149/149071.png" }
 }));
 
 const Message = mongoose.model("Message", new mongoose.Schema({
     from: String,
-    to: String,
+    to: { type: String, default: "Global" },
     message: String,
     time: String,
-    senderId: String,
-    type: String
+    type: { type: String, default: "text" }
 }));
 
-app.use(express.static("public"));
+app.use(express.static("public", {
+  setHeaders: (res, path) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  }
+}));
 app.use(express.json());
 
-// File Upload Logic (Voice/Images)
 const storage = multer.diskStorage({
     destination: "./public/uploads/",
-    filename: (req, file, cb) => {
-        cb(null, Date.now() + path.extname(file.originalname));
-    }
+    filename: (req, file, cb) => { cb(null, Date.now() + path.extname(file.originalname)); }
 });
 const upload = multer({ storage: storage });
 
-// API: User Registration
+// Auth Routes
 app.post("/register", async (req, res) => {
     try {
         const { username, password } = req.body;
         const existingUser = await User.findOne({ username });
-        if (existingUser) {
-            return res.status(400).json({ success: false, error: "User already exists" });
-        }
+        if (existingUser) return res.status(400).json({ success: false, error: "User already exists" });
         const hashedPassword = await bcrypt.hash(password, 10);
         await User.create({ username, password: hashedPassword });
         res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ success: false, error: "Server error during registration" });
-    }
+    } catch (e) { res.status(500).json({ error: "Server error" }); }
 });
 
-// API: User Login
 app.post("/login", async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        const user = await User.findOne({ username });
-        if (user && await bcrypt.compare(password, user.password)) {
-            res.json({ success: true, user: { username: user.username } });
-        } else {
-            res.status(400).json({ success: false, error: "Invalid username or password" });
-        }
-    } catch (e) {
-        res.status(500).json({ success: false, error: "Server error during login" });
-    }
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (user && await bcrypt.compare(password, user.password)) {
+        res.json({ success: true, user: { username: user.username, profilePic: user.profilePic } });
+    } else { res.status(400).json({ error: "Invalid credentials" }); }
 });
 
-// API: File Upload
 app.post("/upload", upload.single("file"), (req, res) => {
-    if (req.file) {
-        res.json({ url: `/uploads/${req.file.filename}` });
-    } else {
-        res.status(400).json({ error: "Upload failed" });
-    }
+    if (req.file) res.json({ url: `/uploads/${req.file.filename}` });
 });
 
-// Socket.io: Real-time Communication
-let onlineUsers = {};
+// Socket Logic for Private & Global Chat
+let onlineUsers = {}; 
+
 io.on("connection", (socket) => {
-    socket.on("join", async (userData) => {
-        onlineUsers[socket.id] = { ...userData, status: "Online" };
-        io.emit("user list", onlineUsers);
+    socket.on("join", async (user) => {
+        socket.username = user.username;
+        onlineUsers[user.username] = socket.id;
+        io.emit("user list", Object.keys(onlineUsers));
         
-        // Chat history-ah eduthu anupum (limit 50 messages)
-        const history = await Message.find().sort({_id: -1}).limit(50);
+        const history = await Message.find({ to: "Global" }).sort({_id: -1}).limit(50);
         socket.emit("chat history", history.reverse());
     });
 
     socket.on("chat message", async (data) => {
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const savedMsg = await Message.create({ ...data, time, senderId: socket.id });
-        io.emit("chat message", { ...data, _id: savedMsg._id, time, senderId: socket.id });
-    });
+        const savedMsg = await Message.create({ ...data, time });
 
-    socket.on("message-seen", (data) => {
-        io.to(data.senderId).emit("update-tick-blue", data.msgId);
+        if (data.to === "Global") {
+            io.emit("chat message", savedMsg);
+        } else {
+            const targetSocket = onlineUsers[data.to];
+            if (targetSocket) io.to(targetSocket).emit("chat message", savedMsg);
+            socket.emit("chat message", savedMsg); 
+        }
     });
 
     socket.on("disconnect", () => {
-        delete onlineUsers[socket.id];
-        io.emit("user list", onlineUsers);
+        delete onlineUsers[socket.username];
+        io.emit("user list", Object.keys(onlineUsers));
     });
 });
 
-// Port configuration for Render (10000 is default)
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT} 🚀`);
-});
+http.listen(PORT, () => console.log(`Server running on port ${PORT}`));

@@ -1,19 +1,21 @@
 const socket = io();
 const SECRET_KEY = "chat-master-key-123";
-let isLogin = true, myUser = null, mediaRecorder, audioChunks = [];
+let myUser = null, currentTarget = "Global", isLogin = true;
 
-function toggleAuth() {
-    isLogin = !isLogin;
-    document.getElementById("auth-title").innerText = isLogin ? "Login" : "Register";
-    document.getElementById("auth-btn").innerText = isLogin ? "Login" : "Register";
-    document.getElementById("toggle-text").innerText = isLogin ? "New here? Create Account" : "Already have account? Login";
+function setChatTarget(target) {
+    currentTarget = target;
+    document.getElementById("target-display").innerText = target === "Global" ? "Global Lobby" : `Chatting with ${target}`;
+    document.getElementById("messages").innerHTML = ""; // Clear for new target history (Optional: load from DB)
+    
+    // UI highlight for sidebar
+    document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
+    event.target.classList.add('active');
 }
 
+// Auth & Socket logic
 async function handleAuth() {
     const username = document.getElementById("auth-user").value;
     const password = document.getElementById("auth-pass").value;
-    if(!username || !password) return alert("Fill all fields");
-
     const res = await fetch(isLogin ? "/login" : "/register", {
         method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ username, password })
@@ -26,31 +28,15 @@ async function handleAuth() {
     } else { alert(data.error); }
 }
 
-const micBtn = document.getElementById("mic-btn");
-micBtn.onclick = async () => {
-    if (!mediaRecorder || mediaRecorder.state === "inactive") {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
-            mediaRecorder.onstart = () => { document.getElementById("record-status").style.display = "block"; };
-            mediaRecorder.onstop = async () => {
-                document.getElementById("record-status").style.display = "none";
-                const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
-                const fd = new FormData(); fd.append("file", audioBlob, "voice.mp3");
-                const res = await fetch("/upload", { method: "POST", body: fd });
-                const { url } = await res.json();
-                sendData(`<audio controls src="${url}"></audio>`, "voice");
-            };
-            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-            mediaRecorder.start();
-        } catch(e) { alert("Mic permission denied!"); }
-    } else { mediaRecorder.stop(); }
-};
+function toggleAuth() {
+    isLogin = !isLogin;
+    document.getElementById("auth-title").innerText = isLogin ? "Login" : "Register";
+    document.getElementById("auth-btn").innerText = isLogin ? "Login" : "Register";
+}
 
 const sendData = (msg, type = "text") => {
     const content = type === "text" ? CryptoJS.AES.encrypt(msg, SECRET_KEY).toString() : msg;
-    socket.emit("chat message", { from: myUser.username, message: content, type });
+    socket.emit("chat message", { from: myUser.username, to: currentTarget, message: content, type });
 };
 
 document.getElementById("form").onsubmit = (e) => {
@@ -60,8 +46,12 @@ document.getElementById("form").onsubmit = (e) => {
 };
 
 function appendMessage(data) {
+    // Show only if message belongs to current chat or is Global
+    if (data.to !== currentTarget && data.from !== currentTarget && currentTarget !== "Global") return;
+    if (currentTarget === "Global" && data.to !== "Global") return;
+
     const li = document.createElement("li");
-    const isMe = data.from === (myUser ? myUser.username : '');
+    const isMe = data.from === myUser.username;
     li.className = `message ${isMe ? 'sent' : 'received'}`;
     
     let msgBody = data.message;
@@ -80,5 +70,11 @@ function appendMessage(data) {
 socket.on("chat message", appendMessage);
 socket.on("chat history", h => h.forEach(appendMessage));
 socket.on("user list", users => {
-    document.getElementById("users").innerHTML = Object.values(users).map(u => `<li>● ${u.username}</li>`).join("");
+    const ul = document.getElementById("users");
+    ul.innerHTML = `<li class="user-item ${currentTarget === 'Global' ? 'active' : ''}" onclick="setChatTarget('Global')">🌍 Global Lobby</li>`;
+    users.forEach(u => {
+        if (u !== myUser.username) {
+            ul.innerHTML += `<li class="user-item ${currentTarget === u ? 'active' : ''}" onclick="setChatTarget('${u}')">👤 ${u}</li>`;
+        }
+    });
 });
