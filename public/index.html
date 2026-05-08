@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Amri Secure Chat</title>
-    <link rel="stylesheet" href="style.css?v=4">
+    <link rel="stylesheet" href="style.css?v=5">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 </head>
@@ -22,7 +22,7 @@
 
 <div class="main-container">
     <div class="sidebar">
-        <h3 style="font-size: 12px; opacity: 0.6; margin-bottom: 20px;">CONTACTS</h3>
+        <h3 style="font-size: 11px; opacity: 0.5; letter-spacing: 2px; margin-bottom: 20px;">DIRECT MESSAGES</h3>
         <ul id="users">
             <li class="user-item active" onclick="setChatTarget('Global')">🌍 Global Lobby</li>
         </ul>
@@ -30,8 +30,10 @@
     
     <div class="chat-area">
         <div class="chat-header">
-            <span id="target-display">Global Lobby</span>
-            <small id="online-status" style="color: #00ff00; font-size: 10px; display: block;">Active Now</small>
+            <div id="target-info">
+                <span id="target-display">Global Lobby</span>
+                <small id="online-status">Active Now</small>
+            </div>
         </div>
         
         <ul id="messages"></ul>
@@ -48,6 +50,6 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="script.js?v=4"></script>
+<script src="script.js?v=5"></script>
 </body>
 </html>

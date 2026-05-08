@@ -2,17 +2,46 @@ const socket = io();
 const SECRET_KEY = "chat-master-key-123";
 let myUser = null, currentTarget = "Global", isLogin = true;
 
+// --- TYPING ---
+let typingTimeout;
+document.getElementById("input").oninput = () => {
+    if (currentTarget !== "Global") {
+        socket.emit("typing", { to: currentTarget, from: myUser.username });
+    }
+};
+
+socket.on("typing", (data) => {
+    if (currentTarget === data.from) {
+        document.getElementById("online-status").innerText = "Typing...";
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+            document.getElementById("online-status").innerText = "Active Now";
+        }, 2000);
+    }
+});
+
+// --- UI TARGETS ---
 function setChatTarget(target) {
     currentTarget = target;
-    document.getElementById("target-display").innerText = target === "Global" ? "Global Lobby" : `Chatting with ${target}`;
-    document.getElementById("messages").innerHTML = ""; // Clear for new target history (Optional: load from DB)
-    
-    // UI highlight for sidebar
+    document.getElementById("target-display").innerText = target === "Global" ? "Global Lobby" : target;
+    document.getElementById("messages").innerHTML = "";
     document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
-    event.target.classList.add('active');
+    event.currentTarget.classList.add('active');
 }
 
-// Auth & Socket logic
+// --- FILE HANDLING ---
+document.getElementById("file-input").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const fd = new FormData(); fd.append("file", file);
+    const res = await fetch("/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    
+    const type = file.type.startsWith("image") ? "image" : "voice";
+    sendData(data.url, type);
+};
+
+// --- AUTH ---
 async function handleAuth() {
     const username = document.getElementById("auth-user").value;
     const password = document.getElementById("auth-pass").value;
@@ -22,7 +51,7 @@ async function handleAuth() {
     });
     const data = await res.json();
     if (data.success) {
-        myUser = isLogin ? data.user : { username };
+        myUser = isLogin ? data.user : { username, profilePic: "https://cdn-icons-png.flaticon.com/512/149/149071.png" };
         document.getElementById("auth-screen").style.display = "none";
         socket.emit("join", myUser);
     } else { alert(data.error); }
@@ -34,6 +63,7 @@ function toggleAuth() {
     document.getElementById("auth-btn").innerText = isLogin ? "Login" : "Register";
 }
 
+// --- MESSAGING ---
 const sendData = (msg, type = "text") => {
     const content = type === "text" ? CryptoJS.AES.encrypt(msg, SECRET_KEY).toString() : msg;
     socket.emit("chat message", { from: myUser.username, to: currentTarget, message: content, type });
@@ -46,7 +76,6 @@ document.getElementById("form").onsubmit = (e) => {
 };
 
 function appendMessage(data) {
-    // Show only if message belongs to current chat or is Global
     if (data.to !== currentTarget && data.from !== currentTarget && currentTarget !== "Global") return;
     if (currentTarget === "Global" && data.to !== "Global") return;
 
@@ -54,15 +83,19 @@ function appendMessage(data) {
     const isMe = data.from === myUser.username;
     li.className = `message ${isMe ? 'sent' : 'received'}`;
     
-    let msgBody = data.message;
+    let msgBody = "";
     if (data.type === "text") {
         try {
             const bytes = CryptoJS.AES.decrypt(data.message, SECRET_KEY);
             msgBody = bytes.toString(CryptoJS.enc.Utf8);
-        } catch(e) { msgBody = "🔒 Encrypted"; }
+        } catch(e) { msgBody = "🔒 Encrypted Message"; }
+    } else if (data.type === "image") {
+        msgBody = `<img src="${data.message}" onclick="window.open(this.src)">`;
+    } else if (data.type === "voice") {
+        msgBody = `<audio controls src="${data.message}"></audio>`;
     }
 
-    li.innerHTML = `<div class="user-name">${data.from}</div><div class="text">${msgBody}</div><div class="meta">${data.time}</div>`;
+    li.innerHTML = `<div class="user-name">${data.from}</div><div class="text">${msgBody}</div><div class="meta" style="font-size:10px; opacity:0.6; text-align:right;">${data.time}</div>`;
     document.getElementById("messages").appendChild(li);
     document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
 }
@@ -72,9 +105,9 @@ socket.on("chat history", h => h.forEach(appendMessage));
 socket.on("user list", users => {
     const ul = document.getElementById("users");
     ul.innerHTML = `<li class="user-item ${currentTarget === 'Global' ? 'active' : ''}" onclick="setChatTarget('Global')">🌍 Global Lobby</li>`;
-    users.forEach(u => {
+    for (let u in users) {
         if (u !== myUser.username) {
-            ul.innerHTML += `<li class="user-item ${currentTarget === u ? 'active' : ''}" onclick="setChatTarget('${u}')">👤 ${u}</li>`;
+            ul.innerHTML += `<li class="user-item ${currentTarget === u ? 'active' : ''}" onclick="setChatTarget('${u}')"><img src="${users[u].pic}" class="user-avatar"><span>${u}</span></li>`;
         }
-    });
+    }
 });

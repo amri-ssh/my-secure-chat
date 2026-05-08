@@ -13,7 +13,7 @@ mongoose.connect(mongoURI, { serverSelectionTimeoutMS: 5000 })
   .then(() => console.log("MongoDB Connected Successfully! ✅"))
   .catch(err => console.error("DB Connection Error: ❌", err.message));
 
-// Updated Schemas
+// Schemas
 const User = mongoose.model("User", new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     password: { type: String, required: true },
@@ -45,12 +45,10 @@ const upload = multer({ storage: storage });
 app.post("/register", async (req, res) => {
     try {
         const { username, password } = req.body;
-        const existingUser = await User.findOne({ username });
-        if (existingUser) return res.status(400).json({ success: false, error: "User already exists" });
         const hashedPassword = await bcrypt.hash(password, 10);
         await User.create({ username, password: hashedPassword });
         res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: "Server error" }); }
+    } catch (e) { res.status(400).json({ error: "User already exists" }); }
 });
 
 app.post("/login", async (req, res) => {
@@ -65,17 +63,22 @@ app.post("/upload", upload.single("file"), (req, res) => {
     if (req.file) res.json({ url: `/uploads/${req.file.filename}` });
 });
 
-// Socket Logic for Private & Global Chat
+// Real-time Engine
 let onlineUsers = {}; 
 
 io.on("connection", (socket) => {
     socket.on("join", async (user) => {
         socket.username = user.username;
-        onlineUsers[user.username] = socket.id;
-        io.emit("user list", Object.keys(onlineUsers));
+        onlineUsers[user.username] = { id: socket.id, pic: user.profilePic };
+        io.emit("user list", onlineUsers);
         
         const history = await Message.find({ to: "Global" }).sort({_id: -1}).limit(50);
         socket.emit("chat history", history.reverse());
+    });
+
+    socket.on("typing", (data) => {
+        const targetSocket = onlineUsers[data.to]?.id;
+        if (targetSocket) io.to(targetSocket).emit("typing", { from: data.from });
     });
 
     socket.on("chat message", async (data) => {
@@ -85,7 +88,7 @@ io.on("connection", (socket) => {
         if (data.to === "Global") {
             io.emit("chat message", savedMsg);
         } else {
-            const targetSocket = onlineUsers[data.to];
+            const targetSocket = onlineUsers[data.to]?.id;
             if (targetSocket) io.to(targetSocket).emit("chat message", savedMsg);
             socket.emit("chat message", savedMsg); 
         }
@@ -93,7 +96,7 @@ io.on("connection", (socket) => {
 
     socket.on("disconnect", () => {
         delete onlineUsers[socket.username];
-        io.emit("user list", Object.keys(onlineUsers));
+        io.emit("user list", onlineUsers);
     });
 });
 
